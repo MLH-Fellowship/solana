@@ -52,6 +52,12 @@ export type MessageArgs = {
   recentBlockhash: Blockhash;
   /** Instructions that will be executed in sequence and committed in one atomic transaction if all succeed. */
   instructions: CompiledInstruction[];
+
+  latestBlockhash?: {
+    blockhash: Blockhash;
+    /** the last block chain can advance to before tx is declared expired */
+    lastValidBlockHeight: number;
+  };
 };
 
 const PUBKEY_LENGTH = 32;
@@ -64,6 +70,7 @@ export class Message {
   accountKeys: PublicKey[];
   recentBlockhash: Blockhash;
   instructions: CompiledInstruction[];
+  lastValidBlockHeight?: number;
 
   private indexToProgramIds: Map<number, PublicKey> = new Map<
     number,
@@ -73,7 +80,16 @@ export class Message {
   constructor(args: MessageArgs) {
     this.header = args.header;
     this.accountKeys = args.accountKeys.map(account => new PublicKey(account));
-    this.recentBlockhash = args.recentBlockhash;
+    if (
+      // eslint-disable-next-line no-prototype-builtins
+      args.hasOwnProperty('latestBlockhash') &&
+      args.latestBlockhash
+    ) {
+      this.recentBlockhash = args.latestBlockhash.blockhash;
+      this.lastValidBlockHeight = args.latestBlockhash.lastValidBlockHeight;
+    } else {
+      this.recentBlockhash = args.recentBlockhash;
+    }
     this.instructions = args.instructions;
     this.instructions.forEach(ix =>
       this.indexToProgramIds.set(

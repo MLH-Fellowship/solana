@@ -31,16 +31,19 @@ import {NonceAccount} from './nonce-account';
 import {PublicKey} from './publickey';
 import {Signer} from './keypair';
 import {MS_PER_SLOT} from './timing';
-import {Transaction} from './transaction';
+import {Transaction, TransactionStatus} from './transaction';
 import {Message} from './message';
 import assert from './util/assert';
 import {sleep} from './util/sleep';
-import {promiseTimeout} from './util/promise-timeout';
+//import {promiseTimeout} from './util/promise-timeout';
 import {toBuffer} from './util/to-buffer';
 import {makeWebsocketUrl} from './util/url';
 import type {Blockhash} from './blockhash';
 import type {FeeCalculator} from './fee-calculator';
-import type {TransactionSignature} from './transaction';
+import type {
+  TransactionSignature,
+  TransactionSignatureBlockhash,
+} from './transaction';
 import type {CompiledInstruction} from './message';
 
 const PublicKeyFromString = coerce(
@@ -2775,38 +2778,54 @@ export class Connection {
     return res.result;
   }
 
+  confirmTransaction(
+    signature: TransactionSignatureBlockhash,
+    commitment?: Commitment,
+  ): Promise<RpcResponseAndContext<SignatureResult>>;
+
   /**
-   * Confirm the transaction identified by the specified signature.
+   * @deprecated Using confirmTransaction with only a signature is deprecated.
    */
-  async confirmTransaction(
+  // eslint-disable-next-line no-dupe-class-members
+  confirmTransaction(
     signature: TransactionSignature,
     commitment?: Commitment,
+  ): Promise<RpcResponseAndContext<SignatureResult>>;
+
+  // eslint-disable-next-line no-dupe-class-members
+  async confirmTransaction(
+    signature: TransactionSignatureBlockhash | TransactionSignature,
+    commitment?: Commitment,
   ): Promise<RpcResponseAndContext<SignatureResult>> {
+    const rawSignature =
+      typeof signature === 'string' ? signature : signature.signature;
     let decodedSignature;
+
     try {
-      decodedSignature = bs58.decode(signature);
+      decodedSignature = bs58.decode(rawSignature);
     } catch (err) {
-      throw new Error('signature must be base58 encoded: ' + signature);
+      throw new Error('signature must be base58 encoded: ' + rawSignature);
     }
 
     assert(decodedSignature.length === 64, 'signature has invalid length');
 
-    const start = Date.now();
     const subscriptionCommitment = commitment || this.commitment;
-
     let subscriptionId;
+    let done = false;
     let response: RpcResponseAndContext<SignatureResult> | null = null;
-    const confirmPromise = new Promise((resolve, reject) => {
+
+    const confirmTx = new Promise((resolve, reject) => {
       try {
         subscriptionId = this.onSignature(
-          signature,
+          rawSignature,
           (result: SignatureResult, context: Context) => {
             subscriptionId = undefined;
             response = {
               context,
               value: result,
             };
-            resolve(null);
+            done = true;
+            resolve(TransactionStatus.CONFIRMED);
           },
           subscriptionCommitment,
         );
@@ -2815,24 +2834,58 @@ export class Connection {
       }
     });
 
-    let timeoutMs = this._confirmTransactionInitialTimeout || 60 * 1000;
-    switch (subscriptionCommitment) {
-      case 'processed':
-      case 'recent':
-      case 'single':
-      case 'confirmed':
-      case 'singleGossip': {
-        timeoutMs = this._confirmTransactionInitialTimeout || 30 * 1000;
-        break;
+    const checkBlockHeight = async () => {
+      const blockHeight = await this.getBlockHeight(commitment);
+      return blockHeight;
+    };
+
+    const expireTx = new Promise((resolve, reject) => {
+      if (typeof signature === 'string') {
+        let timeoutMs = this._confirmTransactionInitialTimeout || 60 * 1000;
+        switch (subscriptionCommitment) {
+          case 'processed':
+          case 'recent':
+          case 'single':
+          case 'confirmed':
+          case 'singleGossip': {
+            timeoutMs = this._confirmTransactionInitialTimeout || 30 * 1000;
+            break;
+          }
+          // exhaust enums to ensure full coverage
+          case 'finalized':
+          case 'max':
+          case 'root':
+        }
+        setTimeout(() => resolve(TransactionStatus.EXPIRED), timeoutMs);
+      } else {
+        (async () => {
+          try {
+            let currentBlockHeight = await checkBlockHeight();
+            if (done) return;
+            while (currentBlockHeight <= signature.lastValidBlockHeight!) {
+              await sleep(1000);
+              if (done) return;
+              currentBlockHeight = await checkBlockHeight();
+              if (done) return;
+            }
+            resolve(TransactionStatus.EXPIRED);
+          } catch (error) {
+            reject(error);
+          }
+        })();
       }
-      // exhaust enums to ensure full coverage
-      case 'finalized':
-      case 'max':
-      case 'root':
-    }
+    });
 
     try {
-      await promiseTimeout(confirmPromise, timeoutMs);
+      const outcome = await Promise.race([confirmTx, expireTx]);
+      switch (outcome) {
+        case 'CONFIRMED':
+          console.log('Transaction has been confirmed');
+          break;
+        case 'EXPIRED':
+          console.log('Transaction has expired');
+          break;
+      }
     } finally {
       if (subscriptionId) {
         this.removeSignatureListener(subscriptionId);
@@ -2840,14 +2893,8 @@ export class Connection {
     }
 
     if (response === null) {
-      const duration = (Date.now() - start) / 1000;
-      throw new Error(
-        `Transaction was not confirmed in ${duration.toFixed(
-          2,
-        )} seconds. It is unknown if it succeeded or failed. Check signature ${signature} using the Solana Explorer or CLI tools.`,
-      );
+      throw new Error(`Transaction ${signature} expired`);
     }
-
     return response;
   }
 
