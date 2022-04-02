@@ -2796,10 +2796,15 @@ export class Connection {
           },
           subscriptionCommitment,
         );
+        console.log('response promise', response);
+        console.log('subscriptionId promise', subscriptionId);
+        console.log('subscriptionCommitment', subscriptionCommitment);
       } catch (err) {
         reject(err);
       }
     });
+
+    console.log('confirmPromise', confirmPromise);
 
     let timeoutMs = this._confirmTransactionInitialTimeout || 60 * 1000;
     switch (subscriptionCommitment) {
@@ -2821,11 +2826,13 @@ export class Connection {
       await promiseTimeout(confirmPromise, timeoutMs);
     } finally {
       if (subscriptionId) {
+        console.log('sub', subscriptionId);
         this.removeSignatureListener(subscriptionId);
       }
     }
 
     if (response === null) {
+      console.log('response', response);
       const duration = (Date.now() - start) / 1000;
       throw new Error(
         `Transaction was not confirmed in ${duration.toFixed(
@@ -2833,7 +2840,7 @@ export class Connection {
         )} seconds. It is unknown if it succeeded or failed. Check signature ${signature} using the Solana Explorer or CLI tools.`,
       );
     }
-
+    console.log('response', response);
     return response;
   }
 
