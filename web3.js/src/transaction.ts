@@ -10,6 +10,7 @@ import {toBuffer} from './util/to-buffer';
 import invariant from './util/assert';
 import type {Signer} from './keypair';
 import type {Blockhash} from './blockhash';
+import {LastValidBlockHeight} from './last-valid-block-height';
 import type {CompiledInstruction} from './message';
 
 /**
@@ -104,18 +105,31 @@ export type SignaturePubkeyPair = {
 };
 
 /**
- * List of Transaction object fields that may be initialized at construction
  *
  */
+export type TransactionCtorFields_DEPRECATED = Omit<
+  TransactionCtorFields,
+  'latestBlockhash'
+> & {
+  recentBlockhash?: Blockhash;
+};
+
+/**
+ * List of Transaction object fields that may be initialized at construction
+ */
 export type TransactionCtorFields = {
-  /** A recent blockhash */
-  recentBlockhash?: Blockhash | null;
   /** Optional nonce information used for offline nonce'd transactions */
   nonceInfo?: NonceInformation | null;
   /** The transaction fee payer */
   feePayer?: PublicKey | null;
   /** One or more signatures */
   signatures?: Array<SignaturePubkeyPair>;
+  /** A recent blockhash */
+  latestBlockhash?: {
+    blockhash: Blockhash;
+    /** the last block chain can advance to before tx is declared expired */
+    lastValidBlockHeight: number;
+  };
 };
 
 /**
@@ -164,6 +178,11 @@ export class Transaction {
   recentBlockhash?: Blockhash;
 
   /**
+   * the last block chain can advance to before tx is declared expired
+   * */
+  lastValidBlockHeight?: number;
+
+  /**
    * Optional Nonce information. If populated, transaction will use a durable
    * Nonce hash instead of a recentBlockhash. Must be populated by the caller
    */
@@ -172,8 +191,22 @@ export class Transaction {
   /**
    * Construct an empty Transaction
    */
-  constructor(opts?: TransactionCtorFields) {
-    opts && Object.assign(this, opts);
+  constructor(opts?: TransactionCtorFields | TransactionCtorFields_DEPRECATED) {
+    if (!opts) {
+      return;
+    } else if (Object.prototype.hasOwnProperty.call(opts, 'recentBlockhash')) {
+      console.warn(
+        'Creating a Transaction with `recentBlockhash` is deprecated. ',
+      );
+      const oldOpts = opts as TransactionCtorFields_DEPRECATED;
+      Object.assign(this, oldOpts);
+      this.recentBlockhash = oldOpts.recentBlockhash;
+    } else {
+      const newOpts = opts as TransactionCtorFields;
+      Object.assign(this, newOpts);
+      this.lastValidBlockHeight = newOpts.latestBlockhash?.lastValidBlockHeight;
+      this.recentBlockhash = newOpts.latestBlockhash?.blockhash;
+    }
   }
 
   /**
@@ -680,9 +713,13 @@ export class Transaction {
   static populate(
     message: Message,
     signatures: Array<string> = [],
+    lastValidBlockHeight?: LastValidBlockHeight,
   ): Transaction {
     const transaction = new Transaction();
     transaction.recentBlockhash = message.recentBlockhash;
+    if (lastValidBlockHeight) {
+      transaction.lastValidBlockHeight = lastValidBlockHeight;
+    }
     if (message.header.numRequiredSignatures > 0) {
       transaction.feePayer = message.accountKeys[0];
     }
