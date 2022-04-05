@@ -1,8 +1,9 @@
-import {Connection, Context, SignatureResult} from '../connection';
+import {Connection} from '../connection';
 import {Transaction} from '../transaction';
 import type {ConfirmOptions} from '../connection';
 import type {Signer} from '../keypair';
 import type {TransactionSignature} from '../transaction';
+import {sleep} from './sleep';
 
 /**
  * Sign, send and confirm a transaction.
@@ -27,54 +28,31 @@ export async function sendAndConfirmTransaction(
     maxRetries: options.maxRetries,
   };
 
-  const subscriptionCommitment =
-    options?.preflightCommitment || options?.commitment;
-
-  let subscriptionId: any;
-  let response: any | null = null;
-
   const signature = await connection.sendTransaction(
     transaction,
     signers,
     sendOptions,
   );
 
-  console.log(signature);
+  const status = await connection.getSignatureStatus(signature);
 
-  const lastValidBlockHeight = (
-    await connection.getLatestBlockhash(options && options.commitment)
-  ).lastValidBlockHeight;
-  console.log('lastValidBlockheight:', lastValidBlockHeight);
-
-  subscriptionId = connection.onSignature(
-    signature,
-    (result: SignatureResult, context: Context) => {
-      subscriptionId = undefined;
-      response = {
-        context,
-        value: result,
-      };
-    },
-    subscriptionCommitment,
-  );
-
-  const isExpired = async () => {
+  const checkBlockHeight = async () => {
     const blockHeight = await connection.getBlockHeight(
       options && options.commitment,
     );
-    console.log('blockHeight:', blockHeight);
 
-    if (blockHeight > lastValidBlockHeight) {
+    if (blockHeight > transaction.lastValidBlockHeight!) {
       throw new Error('Transaction has expired.');
     } else {
-      if (response?.context?.slot) return;
-      console.log('subscriptionId:', subscriptionId);
-      console.log('response:', response);
+      if (status) {
+        return;
+      }
+      await sleep(500);
+      await checkBlockHeight();
     }
-    await isExpired();
   };
 
-  await isExpired();
+  await checkBlockHeight();
   // const status = (
   //   await connection.confirmTransaction(
   //     signature,
@@ -87,6 +65,7 @@ export async function sendAndConfirmTransaction(
   //     `Transaction ${signature} failed (${JSON.stringify(status)})`,
   //   );
   // }
-  console.log(signature);
+
+  console.log('signature:', signature);
   return signature;
 }
