@@ -10,6 +10,7 @@ import {toBuffer} from './util/to-buffer';
 import invariant from './util/assert';
 import type {Signer} from './keypair';
 import type {Blockhash} from './blockhash';
+import { LastValidBlockHeight } from './last-valid-block-height';
 import type {CompiledInstruction} from './message';
 
 /**
@@ -162,6 +163,8 @@ export class Transaction {
    * A recent transaction id. Must be populated by the caller
    */
   recentBlockhash?: Blockhash;
+
+  lastValidBlockHeight?: LastValidBlockHeight;
 
   /**
    * Optional Nonce information. If populated, transaction will use a durable
@@ -680,9 +683,13 @@ export class Transaction {
   static populate(
     message: Message,
     signatures: Array<string> = [],
+    lastValidBlockHeight?: LastValidBlockHeight
   ): Transaction {
     const transaction = new Transaction();
     transaction.recentBlockhash = message.recentBlockhash;
+    if (lastValidBlockHeight){
+      transaction.lastValidBlockHeight = lastValidBlockHeight;
+    }
     if (message.header.numRequiredSignatures > 0) {
       transaction.feePayer = message.accountKeys[0];
     }
