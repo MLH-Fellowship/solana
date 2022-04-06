@@ -2,6 +2,7 @@ import {Connection} from '../connection';
 import {Transaction} from '../transaction';
 import type {ConfirmOptions} from '../connection';
 import type {Signer} from '../keypair';
+import type {Blockhash} from './blockhash';
 import type {TransactionSignature} from '../transaction';
 import {sleep} from './sleep';
 
@@ -34,6 +35,13 @@ export async function sendAndConfirmTransaction(
     sendOptions,
   );
 
+  let originalNonce:Blockhash;
+  if (transaction.nonceInfo) {
+    if (transaction.instructions[0] != transaction.nonceInfo.nonceInstruction) {
+      originalNonce = transaction.nonceInfo.nonce;
+    }
+  }
+
   const status = await connection.getSignatureStatus(signature);
 
   const checkBlockHeight = async () => {
@@ -52,7 +60,26 @@ export async function sendAndConfirmTransaction(
     }
   };
 
-  await checkBlockHeight();
+  const checkNonce = async () => {
+    // TODO maybe use connection.getNonceAndContext (nonceAccount: PublicKey -> NonceAccount) here
+    let newNonce = transaction.nonceInfo?.nonce;
+
+    if (newNonce != originalNonce) {
+      throw new Error('Transaction has expired.');
+    } else {
+      if (status) {
+        return;
+      }
+      await sleep(500);
+      await checkNonce();
+    }
+  };
+
+  if (transaction.nonceInfo) {
+    await checkNonce();
+  } else {
+    await checkBlockHeight();
+  }
   // const status = (
   //   await connection.confirmTransaction(
   //     signature,
