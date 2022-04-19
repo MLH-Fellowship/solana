@@ -717,9 +717,9 @@ export class Transaction {
   ): Transaction {
     const transaction = new Transaction();
     transaction.recentBlockhash = message.recentBlockhash;
-    if (lastValidBlockHeight) {
-      transaction.lastValidBlockHeight = lastValidBlockHeight;
-    }
+    // if (lastValidBlockHeight) {
+    transaction.lastValidBlockHeight = lastValidBlockHeight;
+    // }
     if (message.header.numRequiredSignatures > 0) {
       transaction.feePayer = message.accountKeys[0];
     }
