@@ -72,9 +72,8 @@ export async function sendAndConfirmTransaction(
     return blockHeight;
   };
 
-  let currentBlockHeight = await checkBlockHeight();
-
   const expireTx = async (): Promise<void> => {
+    let currentBlockHeight = await checkBlockHeight();
     while (currentBlockHeight <= transaction.lastValidBlockHeight!) {
       if (transaction.lastValidBlockHeight! - currentBlockHeight > 200) {
         await sleep(2000);
@@ -85,6 +84,8 @@ export async function sendAndConfirmTransaction(
       }
       currentBlockHeight = await checkBlockHeight();
     }
+    console.log('lastValidBlockHeight exceeded!');
+    return;
   };
 
   try {
