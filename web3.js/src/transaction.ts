@@ -142,10 +142,22 @@ export type NonceInformation = {
   nonceInstruction: TransactionInstruction;
 };
 
+interface TransactionImpl_DEPRECATED {
+  // The new signature
+  new (opts?: TransactionCtorFields): TransactionImpl;
+
+  /** @deprecated
+   * `recentBlockhash` has been deprecated.
+   * Please pass `latestBlockhash: {blockHash: BlockHash, lastValidBlockHeight: number}` instead.
+   * This will be deprecated in a X.0.0 version of @solana/web3.js.
+   */
+  new (opts?: TransactionCtorFields_DEPRECATED): TransactionImpl;
+}
+
 /**
  * Transaction class
  */
-export class Transaction {
+class TransactionImpl {
   /**
    * Signatures for the transaction.  Typically created by invoking the
    * `sign()` method
@@ -214,9 +226,9 @@ export class Transaction {
    */
   add(
     ...items: Array<
-      Transaction | TransactionInstruction | TransactionInstructionCtorFields
+      TransactionImpl | TransactionInstruction | TransactionInstructionCtorFields
     >
-  ): Transaction {
+  ): TransactionImpl {
     if (items.length === 0) {
       throw new Error('No instructions');
     }
@@ -692,7 +704,7 @@ export class Transaction {
   /**
    * Parse a wire transaction into a Transaction object.
    */
-  static from(buffer: Buffer | Uint8Array | Array<number>): Transaction {
+  static from(buffer: Buffer | Uint8Array | Array<number>): TransactionImpl {
     // Slice up wire data
     let byteArray = [...buffer];
 
@@ -704,7 +716,7 @@ export class Transaction {
       signatures.push(bs58.encode(Buffer.from(signature)));
     }
 
-    return Transaction.populate(Message.from(byteArray), signatures);
+    return TransactionImpl.populate(Message.from(byteArray), signatures);
   }
 
   /**
@@ -714,7 +726,7 @@ export class Transaction {
     message: Message,
     signatures: Array<string> = [],
     lastValidBlockHeight?: LastValidBlockHeight,
-  ): Transaction {
+  ): TransactionImpl {
     const transaction = new Transaction();
     transaction.recentBlockhash = message.recentBlockhash;
     // if (lastValidBlockHeight) {
@@ -759,3 +771,5 @@ export class Transaction {
     return transaction;
   }
 }
+
+export const Transaction = TransactionImpl as TransactionImpl_DEPRECATED;
