@@ -40,10 +40,7 @@ import {toBuffer} from './util/to-buffer';
 import {makeWebsocketUrl} from './util/url';
 import type {Blockhash} from './blockhash';
 import type {FeeCalculator} from './fee-calculator';
-import type {
-  TransactionSignature,
-  TransactionSignatureBlockhash,
-} from './transaction';
+import type {TransactionSignature} from './transaction';
 import type {CompiledInstruction} from './message';
 
 const PublicKeyFromString = coerce(
@@ -157,6 +154,17 @@ export type RpcResponseAndContext<T> = {
   context: Context;
   /** response value */
   value: T;
+};
+
+
+type BlockheightBasedTransactionConfimationConfig = {
+  signature: TransactionSignature;
+  blockhash: Blockhash;
+  lastValidBlockHeight: number;
+};
+
+type NonceBasedTransactionConfirmationConfig = {
+  nonce: string;
 };
 
 /**
@@ -2778,27 +2786,44 @@ export class Connection {
     return res.result;
   }
 
-  confirmTransaction(
-    signature: TransactionSignatureBlockhash,
-    commitment?: Commitment,
-  ): Promise<RpcResponseAndContext<SignatureResult>>;
-
-  /**
-   * @deprecated Using confirmTransaction with only a signature is deprecated.
-   */
   // eslint-disable-next-line no-dupe-class-members
   confirmTransaction(
-    signature: TransactionSignature,
+    strategy: BlockheightBasedTransactionConfimationConfig,
+    commitment?: Commitment,
+  ): Promise<RpcResponseAndContext<SignatureResult>>;
+  // eslint-disable-next-line no-dupe-class-members
+  confirmTransaction(
+    strategy: NonceBasedTransactionConfirmationConfig,
+    commitment?: Commitment,
+  ): Promise<RpcResponseAndContext<SignatureResult>>;
+  /** @deprecated Instead, call `confirmTransaction` using a `TransactionConfirmationConfig` */
+  // eslint-disable-next-line no-dupe-class-members
+  confirmTransaction(
+    strategy: TransactionSignature,
     commitment?: Commitment,
   ): Promise<RpcResponseAndContext<SignatureResult>>;
 
   // eslint-disable-next-line no-dupe-class-members
   async confirmTransaction(
-    signature: TransactionSignatureBlockhash | TransactionSignature,
+    strategy:
+      | BlockheightBasedTransactionConfimationConfig
+      | NonceBasedTransactionConfirmationConfig
+      | TransactionSignature,
     commitment?: Commitment,
   ): Promise<RpcResponseAndContext<SignatureResult>> {
-    const rawSignature =
-      typeof signature === 'string' ? signature : signature.signature;
+    let rawSignature: string = '';
+
+    if (Object.prototype.hasOwnProperty.call(strategy, 'signature')) {
+      let config = strategy as BlockheightBasedTransactionConfimationConfig;
+      console.log(config);
+      rawSignature = config.signature;
+    } else if (Object.prototype.hasOwnProperty.call(strategy, 'nonce')) {
+      let config = strategy as NonceBasedTransactionConfirmationConfig;
+      rawSignature = config.nonce;
+    } else if (typeof strategy == 'string') {
+      rawSignature = strategy;
+    }
+
     let decodedSignature;
 
     try {
@@ -2840,7 +2865,8 @@ export class Connection {
     };
 
     const expireTx = new Promise((resolve, reject) => {
-      if (typeof signature === 'string') {
+      if (typeof strategy === 'string') {
+        console.log('timeout');
         let timeoutMs = this._confirmTransactionInitialTimeout || 60 * 1000;
         switch (subscriptionCommitment) {
           case 'processed':
@@ -2856,13 +2882,17 @@ export class Connection {
           case 'max':
           case 'root':
         }
+        if (done) clearTimeout();
         setTimeout(() => resolve(TransactionStatus.EXPIRED), timeoutMs);
-      } else {
+      } else if (Object.prototype.hasOwnProperty.call(strategy, 'signature')) {
+        let config = strategy as BlockheightBasedTransactionConfimationConfig;
         (async () => {
           try {
             let currentBlockHeight = await checkBlockHeight();
+            console.log(currentBlockHeight);
+            console.log(config.lastValidBlockHeight);
             if (done) return;
-            while (currentBlockHeight <= signature.lastValidBlockHeight!) {
+            while (currentBlockHeight <= config.lastValidBlockHeight) {
               await sleep(1000);
               if (done) return;
               currentBlockHeight = await checkBlockHeight();
@@ -2893,7 +2923,7 @@ export class Connection {
     }
 
     if (response === null) {
-      throw new Error(`Transaction ${signature} expired`);
+      throw new Error(`Transaction ${rawSignature} expired`);
     }
     return response;
   }

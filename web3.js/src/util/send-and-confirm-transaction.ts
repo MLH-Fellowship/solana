@@ -2,10 +2,7 @@ import {Connection} from '../connection';
 import {Transaction} from '../transaction';
 import type {ConfirmOptions} from '../connection';
 import type {Signer} from '../keypair';
-import type {
-  TransactionSignature,
-  TransactionSignatureBlockhash,
-} from '../transaction';
+import type {TransactionSignature} from '../transaction';
 
 class TransactionExpiredBlockheightExceededError extends Error {
   signature: string;
@@ -55,17 +52,12 @@ export async function sendAndConfirmTransaction(
     sendOptions,
   );
 
-  const signatureBlockhash: TransactionSignatureBlockhash = {
-    signature: signature,
-    blockhash: transaction.recentBlockhash,
-    lastValidBlockHeight: transaction.lastValidBlockHeight,
-  };
-
   status = (
-    await connection.confirmTransaction(
-      signatureBlockhash,
-      options && options.commitment,
-    )
+    await connection.confirmTransaction({
+      signature: signature,
+      blockhash: transaction.recentBlockhash!,
+      lastValidBlockHeight: transaction.lastValidBlockHeight!,
+    }, options && options.commitment)
   ).value;
 
   if (status.err) {

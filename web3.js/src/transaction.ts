@@ -21,17 +21,6 @@ import type {CompiledInstruction} from './message';
  */
 export type TransactionSignature = string;
 
-export type TransactionBlockhash = {
-  blockhash?: Blockhash;
-  lastValidBlockHeight?: number;
-};
-
-export type TransactionSignatureBlockhash = {
-  signature: TransactionSignature;
-  blockhash?: Blockhash;
-  lastValidBlockHeight?: number;
-};
-
 export enum TransactionStatus {
   CONFIRMED = 'CONFIRMED',
   EXPIRED = 'EXPIRED',
@@ -161,11 +150,10 @@ export type TransactionBlockhashCtor = {
   /** One or more signatures */
   signatures?: Array<SignaturePubkeyPair>;
   /** A recent blockhash */
-  latestBlockhash?: {
-    blockhash: Blockhash;
-    /** the last block chain can advance to before tx is declared expired */
-    lastValidBlockHeight: number;
-  };
+  blockhash: Blockhash;
+  /** the last block chain can advance to before tx is declared expired */
+  lastValidBlockHeight: number;
+
 };
 
 /**
@@ -173,7 +161,7 @@ export type TransactionBlockhashCtor = {
  */
 export type TransactionNonceCtor = {
   /** Optional nonce information used for offline nonce'd transactions */
-  nonceInfo?: NonceInformation | null;
+  nonceInfo: NonceInformation | null;
   /** The transaction fee payer */
   feePayer?: PublicKey | null;
   /** One or more signatures */
@@ -293,8 +281,8 @@ export class Transaction {
     } else if (opts.hasOwnProperty('latestBlockhash')) {
       const newOpts = opts as TransactionBlockhashCtor;
       Object.assign(this, newOpts);
-      this.lastValidBlockHeight = newOpts.latestBlockhash!.lastValidBlockHeight;
-      this.recentBlockhash = newOpts.latestBlockhash!.blockhash;
+      this.recentBlockhash = newOpts.blockhash;
+      this.lastValidBlockHeight = newOpts.lastValidBlockHeight;
     } else {
       const newOpts = opts as TransactionNonceCtor;
       Object.assign(this, newOpts);
