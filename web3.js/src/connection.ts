@@ -39,9 +39,7 @@ import {toBuffer} from './util/to-buffer';
 import {makeWebsocketUrl} from './util/url';
 import type {Blockhash} from './blockhash';
 import type {FeeCalculator} from './fee-calculator';
-import type {
-  TransactionSignature
-} from './transaction';
+import type {TransactionSignature} from './transaction';
 import type {CompiledInstruction} from './message';
 
 const PublicKeyFromString = coerce(
@@ -156,7 +154,6 @@ export type RpcResponseAndContext<T> = {
   /** response value */
   value: T;
 };
-
 
 type BlockheightBasedTransactionConfimationStrategy = {
   signature: TransactionSignature;
@@ -2788,16 +2785,17 @@ export class Connection {
     return res.result;
   }
 
-  // eslint-disable-next-line no-dupe-class-members
   confirmTransaction(
     strategy: BlockheightBasedTransactionConfimationStrategy,
     commitment?: Commitment,
   ): Promise<RpcResponseAndContext<SignatureResult>>;
+
   // eslint-disable-next-line no-dupe-class-members
   confirmTransaction(
     strategy: NonceBasedTransactionConfirmationStrategy,
     commitment?: Commitment,
   ): Promise<RpcResponseAndContext<SignatureResult>>;
+
   /** @deprecated Instead, call `confirmTransaction` using a `TransactionConfirmationConfig` */
   // eslint-disable-next-line no-dupe-class-members
   confirmTransaction(

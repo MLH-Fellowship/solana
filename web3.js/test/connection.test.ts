@@ -3,6 +3,7 @@ import {Buffer} from 'buffer';
 import {Token, u64} from '@solana/spl-token';
 import {expect, use} from 'chai';
 import chaiAsPromised from 'chai-as-promised';
+import {useFakeTimers, SinonFakeTimers} from 'sinon';
 
 import {
   Account,
@@ -901,6 +902,107 @@ describe('Connection', function () {
     await expect(
       connection.getSignatureStatus(badTransactionSignature),
     ).to.be.rejectedWith(mockErrorMessage);
+  });
+
+  describe('confirm transaction with mock timer', () => {
+    let clock: sinon.SinonFakeTimers;
+    beforeEach(() => {
+      clock = useFakeTimers();
+    });
+
+    afterEach(() => {
+      clock.restore();
+    });
+
+    it('confirm transaction - timeout expired', async () => {
+      const newSignature =
+        'LPJ18iiyfz3G1LpNNbcBnBtaS4dVBdPHKrnELqikjER2DcvB4iyTgz43nKQJH3JQAJHuZdM1xVh5Cnc5Hc7LrqC';
+
+      const timeoutPromise = connection.confirmTransaction(newSignature);
+
+      clock.tick(60 * 1000);
+
+      await expect(timeoutPromise).to.be.rejectedWith(
+        `Transaction ${newSignature} expired`,
+      );
+    });
+  });
+
+  it('confirm transaction - block height exceeded', async () => {
+    const blockHeightSignature =
+      'LPJ18iiyfz3G1LpNNbcBnBtaS4dVBdPHKrnELqikjER2DcvB4iyTgz43nKQJH3JQAJHuZdM1xVh5Cnc5Hc7LrqC';
+    const blockHeightPromise = connection.confirmTransaction({
+      signature: blockHeightSignature,
+      blockhash: 'sampleBlockhash',
+      lastValidBlockHeight: 5,
+    });
+
+    await mockRpcResponse({
+      method: 'getBlockHeight',
+      params: ['processed'],
+      value: 3,
+    });
+
+    await mockRpcResponse({
+      method: 'getBlockHeight',
+      params: ['processed'],
+      value: 4,
+    });
+
+    await mockRpcResponse({
+      method: 'getBlockHeight',
+      params: [],
+      value: 6,
+    });
+
+    await expect(blockHeightPromise).to.be.rejectedWith(
+      `Transaction ${blockHeightSignature} expired`,
+    );
+  });
+
+  it('confirm transaction - block height confirmed', async () => {
+    const blockHeightSignature =
+      'LPJ18iiyfz3G1LpNNbcBnBtaS4dVBdPHKrnELqikjER2DcvB4iyTgz43nKQJH3JQAJHuZdM1xVh5Cnc5Hc7LrqC';
+    const blockHeightPromise = connection.confirmTransaction({
+      signature: blockHeightSignature,
+      blockhash: 'sampleBlockhash',
+      lastValidBlockHeight: 6,
+    });
+
+    await mockRpcResponse({
+      method: 'getBlockHeight',
+      params: ['processed'],
+      value: 2,
+    });
+
+    await mockRpcResponse({
+      method: 'getBlockHeight',
+      params: ['processed'],
+      value: 3,
+    });
+
+    await mockRpcResponse({
+      method: 'getBlockHeight',
+      params: ['confirmed'],
+      value: 4,
+    });
+
+    await mockRpcResponse({
+      method: 'getSignatureStatuses',
+      params: [[blockHeightSignature]],
+      value: {
+        confirmationStatus: 'finalized',
+        confirmations: null,
+        err: null,
+        slot: 4,
+        status: {Ok: null},
+      },
+    });
+
+    await expect(blockHeightPromise).to.be.ok;
+
+    await expect(connection.getSignatureStatuses([blockHeightSignature])).to.not
+      .be.null;
   });
 
   it('get transaction count', async () => {
