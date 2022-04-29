@@ -35,12 +35,13 @@ import {Transaction, TransactionStatus} from './transaction';
 import {Message} from './message';
 import assert from './util/assert';
 import {sleep} from './util/sleep';
-//import {promiseTimeout} from './util/promise-timeout';
 import {toBuffer} from './util/to-buffer';
 import {makeWebsocketUrl} from './util/url';
 import type {Blockhash} from './blockhash';
 import type {FeeCalculator} from './fee-calculator';
-import type {TransactionSignature} from './transaction';
+import type {
+  TransactionSignature
+} from './transaction';
 import type {CompiledInstruction} from './message';
 
 const PublicKeyFromString = coerce(
@@ -157,13 +158,14 @@ export type RpcResponseAndContext<T> = {
 };
 
 
-type BlockheightBasedTransactionConfimationConfig = {
+type BlockheightBasedTransactionConfimationStrategy = {
   signature: TransactionSignature;
   blockhash: Blockhash;
   lastValidBlockHeight: number;
 };
 
-type NonceBasedTransactionConfirmationConfig = {
+type NonceBasedTransactionConfirmationStrategy = {
+  signature: TransactionSignature;
   nonce: string;
 };
 
@@ -2788,12 +2790,12 @@ export class Connection {
 
   // eslint-disable-next-line no-dupe-class-members
   confirmTransaction(
-    strategy: BlockheightBasedTransactionConfimationConfig,
+    strategy: BlockheightBasedTransactionConfimationStrategy,
     commitment?: Commitment,
   ): Promise<RpcResponseAndContext<SignatureResult>>;
   // eslint-disable-next-line no-dupe-class-members
   confirmTransaction(
-    strategy: NonceBasedTransactionConfirmationConfig,
+    strategy: NonceBasedTransactionConfirmationStrategy,
     commitment?: Commitment,
   ): Promise<RpcResponseAndContext<SignatureResult>>;
   /** @deprecated Instead, call `confirmTransaction` using a `TransactionConfirmationConfig` */
@@ -2806,19 +2808,19 @@ export class Connection {
   // eslint-disable-next-line no-dupe-class-members
   async confirmTransaction(
     strategy:
-      | BlockheightBasedTransactionConfimationConfig
-      | NonceBasedTransactionConfirmationConfig
+      | BlockheightBasedTransactionConfimationStrategy
+      | NonceBasedTransactionConfirmationStrategy
       | TransactionSignature,
     commitment?: Commitment,
   ): Promise<RpcResponseAndContext<SignatureResult>> {
     let rawSignature: string = '';
 
-    if (Object.prototype.hasOwnProperty.call(strategy, 'signature')) {
-      let config = strategy as BlockheightBasedTransactionConfimationConfig;
+    if (Object.prototype.hasOwnProperty.call(strategy, 'blockhash')) {
+      let config = strategy as BlockheightBasedTransactionConfimationStrategy;
       console.log(config);
       rawSignature = config.signature;
     } else if (Object.prototype.hasOwnProperty.call(strategy, 'nonce')) {
-      let config = strategy as NonceBasedTransactionConfirmationConfig;
+      let config = strategy as NonceBasedTransactionConfirmationStrategy;
       rawSignature = config.nonce;
     } else if (typeof strategy == 'string') {
       rawSignature = strategy;
@@ -2885,7 +2887,7 @@ export class Connection {
         if (done) clearTimeout();
         setTimeout(() => resolve(TransactionStatus.EXPIRED), timeoutMs);
       } else if (Object.prototype.hasOwnProperty.call(strategy, 'signature')) {
-        let config = strategy as BlockheightBasedTransactionConfimationConfig;
+        let config = strategy as BlockheightBasedTransactionConfimationStrategy;
         (async () => {
           try {
             let currentBlockHeight = await checkBlockHeight();

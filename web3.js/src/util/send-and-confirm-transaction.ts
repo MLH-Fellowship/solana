@@ -2,7 +2,9 @@ import {Connection} from '../connection';
 import {Transaction} from '../transaction';
 import type {ConfirmOptions} from '../connection';
 import type {Signer} from '../keypair';
-import type {TransactionSignature} from '../transaction';
+import type {
+  TransactionSignature,
+} from '../transaction';
 
 class TransactionExpiredBlockheightExceededError extends Error {
   signature: string;
