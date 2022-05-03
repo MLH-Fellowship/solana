@@ -1,11 +1,15 @@
 use {
     crate::{
-        erasure::Session,
-        shred::{Error, Shred, MAX_DATA_SHREDS_PER_FEC_BLOCK, SIZE_OF_DATA_SHRED_PAYLOAD},
+        shred::{
+            Error, Shred, ShredFlags, MAX_DATA_SHREDS_PER_FEC_BLOCK, SIZE_OF_DATA_SHRED_PAYLOAD,
+        },
         shred_stats::ProcessShredsStats,
     },
     rayon::{prelude::*, ThreadPool},
-    reed_solomon_erasure::Error::{InvalidIndex, TooFewDataShards, TooFewShardsPresent},
+    reed_solomon_erasure::{
+        galois_8::Field,
+        Error::{InvalidIndex, TooFewDataShards, TooFewShardsPresent},
+    },
     solana_entry::entry::Entry,
     solana_measure::measure::Measure,
     solana_rayon_threadlimit::get_thread_count,
@@ -18,6 +22,8 @@ thread_local!(static PAR_THREAD_POOL: RefCell<ThreadPool> = RefCell::new(rayon::
                     .thread_name(|ix| format!("shredder_{}", ix))
                     .build()
                     .unwrap()));
+
+type ReedSolomon = reed_solomon_erasure::ReedSolomon<Field>;
 
 #[derive(Debug)]
 pub struct Shredder {
@@ -109,8 +115,14 @@ impl Shredder {
         let last_shred_index = next_shred_index + num_shreds as u32 - 1;
         // 1) Generate data shreds
         let make_data_shred = |shred_index: u32, data| {
-            let is_last_data = shred_index == last_shred_index;
-            let is_last_in_slot = is_last_data && is_last_in_slot;
+            let flags = if shred_index != last_shred_index {
+                ShredFlags::empty()
+            } else if is_last_in_slot {
+                // LAST_SHRED_IN_SLOT also implies DATA_COMPLETE_SHRED.
+                ShredFlags::LAST_SHRED_IN_SLOT
+            } else {
+                ShredFlags::DATA_COMPLETE_SHRED
+            };
             let parent_offset = self.slot - self.parent_slot;
             let fec_set_index = Self::fec_set_index(shred_index, fec_set_offset);
             let mut shred = Shred::new_from_data(
@@ -118,8 +130,7 @@ impl Shredder {
                 shred_index,
                 parent_offset as u16,
                 data,
-                is_last_data,
-                is_last_in_slot,
+                flags,
                 self.reference_tick,
                 self.version,
                 fec_set_index.unwrap(),
@@ -235,9 +246,9 @@ impl Shredder {
         let data = data.iter().map(Shred::erasure_shard_as_slice);
         let data: Vec<_> = data.collect::<Result<_, _>>().unwrap();
         let mut parity = vec![vec![0u8; data[0].len()]; num_coding];
-        Session::new(num_data, num_coding)
+        ReedSolomon::new(num_data, num_coding)
             .unwrap()
-            .encode(&data, &mut parity[..])
+            .encode_sep(&data, &mut parity[..])
             .unwrap();
         let num_data = u16::try_from(num_data).unwrap();
         let num_coding = u16::try_from(num_coding).unwrap();
@@ -300,7 +311,7 @@ impl Shredder {
                 mask[index] = true;
             }
         }
-        Session::new(num_data_shreds, num_coding_shreds)?.decode_blocks(&mut shards)?;
+        ReedSolomon::new(num_data_shreds, num_coding_shreds)?.reconstruct_data(&mut shards)?;
         let recovered_data = mask
             .into_iter()
             .zip(shards)
@@ -348,7 +359,6 @@ mod tests {
         super::*,
         crate::shred::{
             max_entries_per_n_shred, max_ticks_per_n_shreds, verify_test_data_shred, ShredType,
-            SHRED_TICK_REFERENCE_MASK,
         },
         bincode::serialized_size,
         matches::assert_matches,
@@ -545,10 +555,13 @@ mod tests {
             0,    // next_code_index
         );
         data_shreds.iter().for_each(|s| {
-            assert_eq!(s.reference_tick(), SHRED_TICK_REFERENCE_MASK);
+            assert_eq!(
+                s.reference_tick(),
+                ShredFlags::SHRED_TICK_REFERENCE_MASK.bits()
+            );
             assert_eq!(
                 Shred::reference_tick_from_data(s.payload()),
-                SHRED_TICK_REFERENCE_MASK
+                ShredFlags::SHRED_TICK_REFERENCE_MASK.bits()
             );
         });
 
@@ -557,7 +570,7 @@ mod tests {
                 .unwrap();
         assert_eq!(
             deserialized_shred.reference_tick(),
-            SHRED_TICK_REFERENCE_MASK
+            ShredFlags::SHRED_TICK_REFERENCE_MASK.bits(),
         );
     }
 
