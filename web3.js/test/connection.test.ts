@@ -56,6 +56,7 @@ import type {
   TransactionError,
   KeyedAccountInfo,
 } from '../src/connection';
+import { TransactionExpiredBlockheightExceededError, TransactionExpiredTimeoutError } from '../src/util/tx-expiry-custom-errors';
 
 use(chaiAsPromised);
 
@@ -81,23 +82,6 @@ const verifySignatureStatus = (
   }
   return status;
 };
-
-class TransactionExpiredBlockheightExceededError extends Error {
-  signature: string;
-
-  constructor(signature: string) {
-    super(`Signature ${signature} has expired.`);
-    this.signature = signature;
-  }
-}
-
-Object.defineProperty(
-  TransactionExpiredBlockheightExceededError.prototype,
-  'name',
-  {
-    value: 'TransactionExpiredBlockheightExceededError',
-  },
-);
 
 describe('Connection', function () {
   let connection: Connection;
@@ -948,19 +932,13 @@ describe('Connection', function () {
 
       clock.tick(60 * 1000);
 
-      await expect(timeoutPromise).to.be.rejectedWith(
-        `Signature ${newSignature} has expired: timeout exceeded.`,
-      );
+      await expect(timeoutPromise).to.be.rejectedWith(TransactionExpiredTimeoutError);
     });
   });
 
   it('confirm transaction - block height exceeded', async () => {
     const blockHeightSignature =
       '4oCEqwGrMdBeMxpzuWiukCYqSfV4DsSKXSiVVCh1iJ6pS772X7y219JZP3mgqBz5PhsvprpKyhzChjYc3VSBQXzG';
-
-    const txBlockHeightExpired = new TransactionExpiredBlockheightExceededError(
-      blockHeightSignature,
-    );
 
     await mockRpcMessage({
       method: 'signatureSubscribe',
@@ -986,27 +964,13 @@ describe('Connection', function () {
       value: 6,
     });
 
-    await mockRpcMessage({
-      method: 'signatureSubscribe',
-      params: [blockHeightSignature, {commitment: 'finalized'}],
-      result: {err: txBlockHeightExpired},
-    });
-
-    await mockRpcResponse({
-      method: 'getBlockHeight',
-      params: [],
-      error: txBlockHeightExpired,
-    });
-
     const blockHeightPromise = connection.confirmTransaction({
       signature: blockHeightSignature,
       blockhash: 'sampleBlockhash',
       lastValidBlockHeight: 5,
     });
 
-    await expect(blockHeightPromise).to.be.rejectedWith(
-      `Signature ${blockHeightSignature} has expired: block height exceeded.`,
-    );
+    await expect(blockHeightPromise).to.be.rejectedWith(TransactionExpiredBlockheightExceededError);
   });
 
   it('confirm transaction - block height confirmed', async () => {

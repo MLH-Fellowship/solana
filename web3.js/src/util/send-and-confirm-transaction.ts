@@ -35,6 +35,26 @@ export async function sendAndConfirmTransaction(
     sendOptions,
   );
 
+  status =
+    transaction.recentBlockhash != null &&
+    transaction.lastValidBlockHeight != null
+      ? (
+          await connection.confirmTransaction(
+            {
+              signature: signature,
+              blockhash: transaction.recentBlockhash!,
+              lastValidBlockHeight: transaction.lastValidBlockHeight!,
+            },
+            options && options.commitment,
+          )
+        ).value
+      : (
+          await connection.confirmTransaction(
+            signature,
+            options && options.commitment,
+          )
+        ).value;
+
   status = (
     await connection.confirmTransaction(
       {
