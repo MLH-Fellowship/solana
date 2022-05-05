@@ -1,26 +1,8 @@
 import {Connection} from '../connection';
 import {Transaction} from '../transaction';
-import {TransactionExpiredBlockheightExceededError} from './tx-expiry-custom-errors';
 import type {ConfirmOptions} from '../connection';
 import type {Signer} from '../keypair';
 import type {TransactionSignature} from '../transaction';
-
-// export class TransactionExpiredBlockheightExceededError extends Error {
-//   signature: string;
-
-//   constructor(signature: string) {
-//     super(`Signature ${signature} has expired.`);
-//     this.signature = signature;
-//   }
-// }
-
-// Object.defineProperty(
-//   TransactionExpiredBlockheightExceededError.prototype,
-//   'name',
-//   {
-//     value: 'TransactionExpiredBlockheightExceededError',
-//   },
-// );
 
 /**
  * Sign, send and confirm a transaction.
@@ -65,7 +47,7 @@ export async function sendAndConfirmTransaction(
   ).value;
 
   if (status.err) {
-    throw new TransactionExpiredBlockheightExceededError(signature);
+    `Transaction ${signature} failed (${JSON.stringify(status)})`;
   }
 
   return signature;

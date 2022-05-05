@@ -255,9 +255,8 @@ export class Transaction {
   constructor(opts?: TransactionNonceCtor);
 
   /**
-   * @deprecated `recentBlockhash` has been deprecated.
-   * Please pass `latestBlockhash: {blockHash: BlockHash, lastValidBlockHeight: number}` instead.
-   * This will be removed in a future version of @solana/web3.js.
+   * @deprecated `TransactionCtorFields` has been deprecated and will be removed in a future version.
+   * Please use `TransactionBlockhashCtro` or `TransactionNonceCtor` instead.
    */
   constructor(opts?: TransactionCtorFields_DEPRECATED);
 
@@ -827,9 +826,7 @@ export class Transaction {
   ): Transaction {
     const transaction = new Transaction();
     transaction.recentBlockhash = message.recentBlockhash;
-    // if (lastValidBlockHeight) {
     transaction.lastValidBlockHeight = lastValidBlockHeight;
-    // }
     if (message.header.numRequiredSignatures > 0) {
       transaction.feePayer = message.accountKeys[0];
     }
