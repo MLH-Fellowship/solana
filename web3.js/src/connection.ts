@@ -37,6 +37,10 @@ import {Message} from './message';
 import assert from './util/assert';
 import {sleep} from './util/sleep';
 import {toBuffer} from './util/to-buffer';
+import {
+  TransactionExpiredBlockheightExceededError,
+  TransactionExpiredTimeoutError,
+} from './util/tx-expiry-custom-errors';
 import {makeWebsocketUrl} from './util/url';
 import type {Blockhash} from './blockhash';
 import type {FeeCalculator} from './fee-calculator';
@@ -284,11 +288,6 @@ type BlockheightBasedTransactionConfimationStrategy = {
   signature: TransactionSignature;
   blockhash: Blockhash;
   lastValidBlockHeight: number;
-};
-
-type NonceBasedTransactionConfirmationStrategy = {
-  signature: TransactionSignature;
-  nonce: string;
 };
 
 /**
@@ -2840,12 +2839,6 @@ export class Connection {
     commitment?: Commitment,
   ): Promise<RpcResponseAndContext<SignatureResult>>;
 
-  // eslint-disable-next-line no-dupe-class-members
-  confirmTransaction(
-    strategy: NonceBasedTransactionConfirmationStrategy,
-    commitment?: Commitment,
-  ): Promise<RpcResponseAndContext<SignatureResult>>;
-
   /** @deprecated Instead, call `confirmTransaction` using a `TransactionConfirmationConfig` */
   // eslint-disable-next-line no-dupe-class-members
   confirmTransaction(
@@ -2857,21 +2850,16 @@ export class Connection {
   async confirmTransaction(
     strategy:
       | BlockheightBasedTransactionConfimationStrategy
-      | NonceBasedTransactionConfirmationStrategy
       | TransactionSignature,
     commitment?: Commitment,
   ): Promise<RpcResponseAndContext<SignatureResult>> {
-    let rawSignature: string = '';
+    let rawSignature: string;
 
-    if (Object.prototype.hasOwnProperty.call(strategy, 'blockhash')) {
-      let config = strategy as BlockheightBasedTransactionConfimationStrategy;
-      console.log(config);
-      rawSignature = config.signature;
-    } else if (Object.prototype.hasOwnProperty.call(strategy, 'nonce')) {
-      let config = strategy as NonceBasedTransactionConfirmationStrategy;
-      rawSignature = config.nonce;
-    } else if (typeof strategy == 'string') {
+    if (typeof strategy == 'string') {
       rawSignature = strategy;
+    } else {
+      let config = strategy as BlockheightBasedTransactionConfimationStrategy;
+      rawSignature = config.signature;
     }
 
     let decodedSignature;
@@ -2885,11 +2873,16 @@ export class Connection {
     assert(decodedSignature.length === 64, 'signature has invalid length');
 
     const subscriptionCommitment = commitment || this.commitment;
+    let timeoutId;
     let subscriptionId;
     let done = false;
     let response: RpcResponseAndContext<SignatureResult> | null = null;
+    let result: RpcResponseAndContext<SignatureResult>;
 
-    const confirmTx = new Promise((resolve, reject) => {
+    const confirmTx = new Promise<{
+      __type: TransactionStatus.PROCESSED;
+      response: RpcResponseAndContext<SignatureResult>;
+    }>((resolve, reject) => {
       try {
         subscriptionId = this.onSignature(
           rawSignature,
@@ -2900,7 +2893,7 @@ export class Connection {
               value: result,
             };
             done = true;
-            resolve(TransactionStatus.CONFIRMED);
+            resolve({__type: TransactionStatus.PROCESSED, response});
           },
           subscriptionCommitment,
         );
@@ -2914,9 +2907,11 @@ export class Connection {
       return blockHeight;
     };
 
-    const expireTx = new Promise((resolve, reject) => {
+    const expireTx = new Promise<{
+      __type: TransactionStatus.EXPIRED | TransactionStatus.TIMED_OUT;
+      reason: 'blockheight expired' | 'timeout elapsed';
+    }>((resolve, reject) => {
       if (typeof strategy === 'string') {
-        console.log('timeout');
         let timeoutMs = this._confirmTransactionInitialTimeout || 60 * 1000;
         switch (subscriptionCommitment) {
           case 'processed':
@@ -2932,15 +2927,20 @@ export class Connection {
           case 'max':
           case 'root':
         }
-        if (done) clearTimeout();
-        setTimeout(() => resolve(TransactionStatus.EXPIRED), timeoutMs);
-      } else if (Object.prototype.hasOwnProperty.call(strategy, 'signature')) {
+
+        timeoutId = setTimeout(
+          () =>
+            resolve({
+              __type: TransactionStatus.TIMED_OUT,
+              reason: 'timeout elapsed',
+            }),
+          timeoutMs,
+        );
+      } else {
         let config = strategy as BlockheightBasedTransactionConfimationStrategy;
         (async () => {
           try {
             let currentBlockHeight = await checkBlockHeight();
-            console.log(currentBlockHeight);
-            console.log(config.lastValidBlockHeight);
             if (done) return;
             while (currentBlockHeight <= config.lastValidBlockHeight) {
               await sleep(1000);
@@ -2948,7 +2948,10 @@ export class Connection {
               currentBlockHeight = await checkBlockHeight();
               if (done) return;
             }
-            resolve(TransactionStatus.EXPIRED);
+            resolve({
+              __type: TransactionStatus.EXPIRED,
+              reason: 'blockheight expired',
+            });
           } catch (error) {
             reject(error);
           }
@@ -2958,24 +2961,22 @@ export class Connection {
 
     try {
       const outcome = await Promise.race([confirmTx, expireTx]);
-      switch (outcome) {
-        case 'CONFIRMED':
-          console.log('Transaction has been confirmed');
+      switch (outcome.__type) {
+        case TransactionStatus.PROCESSED:
+          result = outcome.response;
           break;
-        case 'EXPIRED':
-          console.log('Transaction has expired');
-          break;
+        case TransactionStatus.EXPIRED:
+          throw new TransactionExpiredBlockheightExceededError(rawSignature);
+        case TransactionStatus.TIMED_OUT:
+          throw new TransactionExpiredTimeoutError(rawSignature);
       }
     } finally {
+      clearTimeout(timeoutId);
       if (subscriptionId) {
         this.removeSignatureListener(subscriptionId);
       }
     }
-
-    if (response === null) {
-      throw new Error(`Transaction ${rawSignature} expired`);
-    }
-    return response;
+    return result;
   }
 
   /**

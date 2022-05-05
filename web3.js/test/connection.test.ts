@@ -45,7 +45,11 @@ import {
   mockRpcResponse,
   mockServer,
 } from './mocks/rpc-http';
-import {stubRpcWebSocket, restoreRpcWebSocket} from './mocks/rpc-websockets';
+import {
+  stubRpcWebSocket,
+  restoreRpcWebSocket,
+  mockRpcMessage,
+} from './mocks/rpc-websockets';
 import type {TransactionSignature} from '../src/transaction';
 import type {
   SignatureStatus,
@@ -77,6 +81,23 @@ const verifySignatureStatus = (
   }
   return status;
 };
+
+class TransactionExpiredBlockheightExceededError extends Error {
+  signature: string;
+
+  constructor(signature: string) {
+    super(`Signature ${signature} has expired.`);
+    this.signature = signature;
+  }
+}
+
+Object.defineProperty(
+  TransactionExpiredBlockheightExceededError.prototype,
+  'name',
+  {
+    value: 'TransactionExpiredBlockheightExceededError',
+  },
+);
 
 describe('Connection', function () {
   let connection: Connection;
@@ -905,7 +926,7 @@ describe('Connection', function () {
   });
 
   describe('confirm transaction with mock timer', () => {
-    let clock: sinon.SinonFakeTimers;
+    let clock: SinonFakeTimers;
     beforeEach(() => {
       clock = useFakeTimers();
     });
@@ -916,37 +937,47 @@ describe('Connection', function () {
 
     it('confirm transaction - timeout expired', async () => {
       const newSignature =
-        'LPJ18iiyfz3G1LpNNbcBnBtaS4dVBdPHKrnELqikjER2DcvB4iyTgz43nKQJH3JQAJHuZdM1xVh5Cnc5Hc7LrqC';
+        'w2Zeq8YkpyB463DttvfzARD7k9ZxGEwbsEw4boEK7jDp3pfoxZbTdLFSsEPhzXhpCcjGi2kHtHFobgX49MMhbWt';
 
+      await mockRpcMessage({
+        method: 'signatureSubscribe',
+        params: [newSignature, {commitment: 'finalized'}],
+        result: new Promise(() => {}),
+      });
       const timeoutPromise = connection.confirmTransaction(newSignature);
 
       clock.tick(60 * 1000);
 
       await expect(timeoutPromise).to.be.rejectedWith(
-        `Transaction ${newSignature} expired`,
+        `Signature ${newSignature} has expired: timeout exceeded.`,
       );
     });
   });
 
   it('confirm transaction - block height exceeded', async () => {
     const blockHeightSignature =
-      'LPJ18iiyfz3G1LpNNbcBnBtaS4dVBdPHKrnELqikjER2DcvB4iyTgz43nKQJH3JQAJHuZdM1xVh5Cnc5Hc7LrqC';
-    const blockHeightPromise = connection.confirmTransaction({
-      signature: blockHeightSignature,
-      blockhash: 'sampleBlockhash',
-      lastValidBlockHeight: 5,
+      '4oCEqwGrMdBeMxpzuWiukCYqSfV4DsSKXSiVVCh1iJ6pS772X7y219JZP3mgqBz5PhsvprpKyhzChjYc3VSBQXzG';
+
+    const txBlockHeightExpired = new TransactionExpiredBlockheightExceededError(
+      blockHeightSignature,
+    );
+
+    await mockRpcMessage({
+      method: 'signatureSubscribe',
+      params: [blockHeightSignature, {commitment: 'finalized'}],
+      result: new Promise(() => {}),
     });
 
     await mockRpcResponse({
       method: 'getBlockHeight',
-      params: ['processed'],
+      params: [{commitment: 'finalized'}],
+      value: 2,
+    });
+
+    await mockRpcResponse({
+      method: 'getBlockHeight',
+      params: [{commitment: 'finalized'}],
       value: 3,
-    });
-
-    await mockRpcResponse({
-      method: 'getBlockHeight',
-      params: ['processed'],
-      value: 4,
     });
 
     await mockRpcResponse({
@@ -955,54 +986,69 @@ describe('Connection', function () {
       value: 6,
     });
 
+    await mockRpcMessage({
+      method: 'signatureSubscribe',
+      params: [blockHeightSignature, {commitment: 'finalized'}],
+      result: {err: txBlockHeightExpired},
+    });
+
+    await mockRpcResponse({
+      method: 'getBlockHeight',
+      params: [],
+      error: txBlockHeightExpired,
+    });
+
+    const blockHeightPromise = connection.confirmTransaction({
+      signature: blockHeightSignature,
+      blockhash: 'sampleBlockhash',
+      lastValidBlockHeight: 5,
+    });
+
     await expect(blockHeightPromise).to.be.rejectedWith(
-      `Transaction ${blockHeightSignature} expired`,
+      `Signature ${blockHeightSignature} has expired: block height exceeded.`,
     );
   });
 
   it('confirm transaction - block height confirmed', async () => {
     const blockHeightSignature =
       'LPJ18iiyfz3G1LpNNbcBnBtaS4dVBdPHKrnELqikjER2DcvB4iyTgz43nKQJH3JQAJHuZdM1xVh5Cnc5Hc7LrqC';
+
+    await mockRpcResponse({
+      method: 'getBlockHeight',
+      params: [{commitment: 'processed'}],
+      value: 2,
+    });
+
+    await mockRpcResponse({
+      method: 'getBlockHeight',
+      params: [{commitment: 'processed'}],
+      value: 3,
+    });
+
+    await mockRpcResponse({
+      method: 'getBlockHeight',
+      params: [{commitment: 'processed'}],
+      value: 4,
+    });
+
+    await mockRpcMessage({
+      method: 'signatureSubscribe',
+      params: [blockHeightSignature, {commitment: 'finalized'}],
+      result: Promise.resolve({err: null}),
+    });
+
     const blockHeightPromise = connection.confirmTransaction({
       signature: blockHeightSignature,
       blockhash: 'sampleBlockhash',
       lastValidBlockHeight: 6,
     });
 
-    await mockRpcResponse({
-      method: 'getBlockHeight',
-      params: ['processed'],
-      value: 2,
+    await expect(blockHeightPromise).to.eventually.have.property('context');
+    await expect(blockHeightPromise).to.eventually.have.property('value');
+    await expect(blockHeightPromise).to.eventually.deep.equal({
+      context: {slot: 11},
+      value: {err: null},
     });
-
-    await mockRpcResponse({
-      method: 'getBlockHeight',
-      params: ['processed'],
-      value: 3,
-    });
-
-    await mockRpcResponse({
-      method: 'getBlockHeight',
-      params: ['confirmed'],
-      value: 4,
-    });
-
-    await mockRpcResponse({
-      method: 'getSignatureStatuses',
-      params: [[blockHeightSignature]],
-      value: {
-        confirmationStatus: 'finalized',
-        confirmations: null,
-        err: null,
-        slot: 4,
-        status: {Ok: null},
-      },
-    });
-
-    await expect(blockHeightPromise).to.be.ok;
-
-    await expect(connection.getSignatureStatuses([blockHeightSignature])).to.not
-      .be.null;
   });
 
   it('get transaction count', async () => {

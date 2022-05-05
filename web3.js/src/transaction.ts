@@ -22,8 +22,9 @@ import type {CompiledInstruction} from './message';
 export type TransactionSignature = string;
 
 export enum TransactionStatus {
-  CONFIRMED = 'CONFIRMED',
-  EXPIRED = 'EXPIRED',
+  PROCESSED,
+  EXPIRED,
+  TIMED_OUT,
 }
 
 /**
@@ -130,7 +131,7 @@ export type SignaturePubkeyPair = {
 /**
  * List of Transaction object fields that may be initialized at construction
  */
-export type TransactionCtorFields = {
+export type TransactionCtorFields_DEPRECATED = {
   /** Optional nonce information used for offline nonce'd transactions */
   nonceInfo?: NonceInformation | null;
   /** The transaction fee payer */
@@ -153,7 +154,6 @@ export type TransactionBlockhashCtor = {
   blockhash: Blockhash;
   /** the last block chain can advance to before tx is declared expired */
   lastValidBlockHeight: number;
-
 };
 
 /**
@@ -161,7 +161,7 @@ export type TransactionBlockhashCtor = {
  */
 export type TransactionNonceCtor = {
   /** Optional nonce information used for offline nonce'd transactions */
-  nonceInfo: NonceInformation | null;
+  nonceInfo: NonceInformation;
   /** The transaction fee payer */
   feePayer?: PublicKey | null;
   /** One or more signatures */
@@ -259,7 +259,7 @@ export class Transaction {
    * Please pass `latestBlockhash: {blockHash: BlockHash, lastValidBlockHeight: number}` instead.
    * This will be removed in a future version of @solana/web3.js.
    */
-  constructor(opts?: TransactionCtorFields);
+  constructor(opts?: TransactionCtorFields_DEPRECATED);
 
   /**
    * Construct an empty Transaction
@@ -268,13 +268,13 @@ export class Transaction {
     opts?:
       | TransactionBlockhashCtor
       | TransactionNonceCtor
-      | TransactionCtorFields,
+      | TransactionCtorFields_DEPRECATED,
   ) {
     if (!opts) {
       return;
       // eslint-disable-next-line no-prototype-builtins
     } else if (opts.hasOwnProperty('recentBlockhash')) {
-      const oldOpts = opts as TransactionCtorFields;
+      const oldOpts = opts as TransactionCtorFields_DEPRECATED;
       Object.assign(this, oldOpts);
       this.recentBlockhash = oldOpts.recentBlockhash;
       // eslint-disable-next-line no-prototype-builtins
@@ -286,7 +286,7 @@ export class Transaction {
     } else {
       const newOpts = opts as TransactionNonceCtor;
       Object.assign(this, newOpts);
-      this.nonceInfo = newOpts.nonceInfo!;
+      this.nonceInfo = newOpts.nonceInfo;
     }
   }
 
