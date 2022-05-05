@@ -284,6 +284,10 @@ export type RpcResponseAndContext<T> = {
   value: T;
 };
 
+/**
+ * A strategy for confirming transactions that uses the last valid
+ * block height for a given blockhash to check for transaction expiration.
+ */
 type BlockheightBasedTransactionConfimationStrategy = {
   signature: TransactionSignature;
   blockhash: Blockhash;
@@ -2876,7 +2880,6 @@ export class Connection {
     let timeoutId;
     let subscriptionId;
     let done = false;
-    let response: RpcResponseAndContext<SignatureResult> | null = null;
     let result: RpcResponseAndContext<SignatureResult>;
 
     const confirmTx = new Promise<{
@@ -2888,7 +2891,7 @@ export class Connection {
           rawSignature,
           (result: SignatureResult, context: Context) => {
             subscriptionId = undefined;
-            response = {
+            let response = {
               context,
               value: result,
             };
@@ -2909,7 +2912,6 @@ export class Connection {
 
     const expireTx = new Promise<{
       __type: TransactionStatus.EXPIRED | TransactionStatus.TIMED_OUT;
-      reason: 'blockheight expired' | 'timeout elapsed';
     }>((resolve, reject) => {
       if (typeof strategy === 'string') {
         let timeoutMs = this._confirmTransactionInitialTimeout || 60 * 1000;
@@ -2932,7 +2934,6 @@ export class Connection {
           () =>
             resolve({
               __type: TransactionStatus.TIMED_OUT,
-              reason: 'timeout elapsed',
             }),
           timeoutMs,
         );
@@ -2950,7 +2951,6 @@ export class Connection {
             }
             resolve({
               __type: TransactionStatus.EXPIRED,
-              reason: 'blockheight expired',
             });
           } catch (error) {
             reject(error);

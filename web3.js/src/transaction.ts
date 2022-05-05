@@ -21,7 +21,7 @@ import type {CompiledInstruction} from './message';
  */
 export type TransactionSignature = string;
 
-export enum TransactionStatus {
+export const enum TransactionStatus {
   PROCESSED,
   EXPIRED,
   TIMED_OUT,
