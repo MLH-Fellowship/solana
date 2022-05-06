@@ -2862,7 +2862,7 @@ export class Connection {
     if (typeof strategy == 'string') {
       rawSignature = strategy;
     } else {
-      let config = strategy as BlockheightBasedTransactionConfimationStrategy;
+      const config = strategy as BlockheightBasedTransactionConfimationStrategy;
       rawSignature = config.signature;
     }
 
@@ -2891,7 +2891,7 @@ export class Connection {
           rawSignature,
           (result: SignatureResult, context: Context) => {
             subscriptionId = undefined;
-            let response = {
+            const response = {
               context,
               value: result,
             };

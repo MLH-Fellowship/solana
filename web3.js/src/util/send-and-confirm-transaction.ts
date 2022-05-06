@@ -27,15 +27,13 @@ export async function sendAndConfirmTransaction(
     maxRetries: options.maxRetries,
   };
 
-  let status;
-
   const signature = await connection.sendTransaction(
     transaction,
     signers,
     sendOptions,
   );
 
-  status =
+  const status =
     transaction.recentBlockhash != null &&
     transaction.lastValidBlockHeight != null
       ? (
