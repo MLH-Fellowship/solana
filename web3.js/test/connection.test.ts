@@ -923,102 +923,117 @@ describe('Connection', function () {
     });
 
     it('confirm transaction - timeout expired', async () => {
-      const newSignature =
+      const mockSignature =
         'w2Zeq8YkpyB463DttvfzARD7k9ZxGEwbsEw4boEK7jDp3pfoxZbTdLFSsEPhzXhpCcjGi2kHtHFobgX49MMhbWt';
 
       await mockRpcMessage({
         method: 'signatureSubscribe',
-        params: [newSignature, {commitment: 'finalized'}],
+        params: [mockSignature, {commitment: 'finalized'}],
         result: new Promise(() => {}),
       });
-      const timeoutPromise = connection.confirmTransaction(newSignature);
+      const timeoutPromise = connection.confirmTransaction(mockSignature);
 
-      clock.tick(60 * 1000);
+      // Advance the clock past all waiting timers, notably the expiry timer.
+      clock.runAllAsync();
 
       await expect(timeoutPromise).to.be.rejectedWith(
         TransactionExpiredTimeoutError,
       );
     });
-  });
 
-  it('confirm transaction - block height exceeded', async () => {
-    const blockHeightSignature =
-      '4oCEqwGrMdBeMxpzuWiukCYqSfV4DsSKXSiVVCh1iJ6pS772X7y219JZP3mgqBz5PhsvprpKyhzChjYc3VSBQXzG';
+    it('confirm transaction - block height exceeded', async () => {
+      const mockSignature =
+        '4oCEqwGrMdBeMxpzuWiukCYqSfV4DsSKXSiVVCh1iJ6pS772X7y219JZP3mgqBz5PhsvprpKyhzChjYc3VSBQXzG';
 
-    await mockRpcMessage({
-      method: 'signatureSubscribe',
-      params: [blockHeightSignature, {commitment: 'finalized'}],
-      result: new Promise(() => {}),
+      await mockRpcMessage({
+        method: 'signatureSubscribe',
+        params: [mockSignature, {commitment: 'finalized'}],
+        result: new Promise(() => {}), // Never resolve this = never get a response.
+      });
+
+      const lastValidBlockHeight = 3;
+
+      // Start the block height at `lastValidBlockHeight - 1`.
+      await mockRpcResponse({
+        method: 'getBlockHeight',
+        params: [],
+        value: lastValidBlockHeight - 1,
+      });
+
+      const confirmationPromise = connection.confirmTransaction({
+        signature: mockSignature,
+        blockhash: 'sampleBlockhash',
+        lastValidBlockHeight,
+      });
+      clock.runAllAsync();
+
+      // Advance the block height to the `lastValidBlockHeight`.
+      await mockRpcResponse({
+        method: 'getBlockHeight',
+        params: [],
+        value: lastValidBlockHeight,
+      });
+      clock.runAllAsync();
+
+      // Advance the block height to `lastValidBlockHeight + 1`,
+      // past the last valid blockheight for this transaction.
+      await mockRpcResponse({
+        method: 'getBlockHeight',
+        params: [],
+        value: lastValidBlockHeight + 1,
+      });
+      clock.runAllAsync();
+      await expect(confirmationPromise).to.be.rejectedWith(
+        TransactionExpiredBlockheightExceededError,
+      );
     });
 
-    await mockRpcResponse({
-      method: 'getBlockHeight',
-      params: [{commitment: 'finalized'}],
-      value: 2,
-    });
+    it('confirm transaction - block height confirmed', async () => {
+      const mockSignature =
+        'LPJ18iiyfz3G1LpNNbcBnBtaS4dVBdPHKrnELqikjER2DcvB4iyTgz43nKQJH3JQAJHuZdM1xVh5Cnc5Hc7LrqC';
 
-    await mockRpcResponse({
-      method: 'getBlockHeight',
-      params: [{commitment: 'finalized'}],
-      value: 3,
-    });
+      let resolveResultPromise: (result: SignatureResult) => void;
+      await mockRpcMessage({
+        method: 'signatureSubscribe',
+        params: [mockSignature, {commitment: 'finalized'}],
+        result: new Promise<SignatureResult>(resolve => {
+          resolveResultPromise = resolve;
+        }),
+      });
 
-    await mockRpcResponse({
-      method: 'getBlockHeight',
-      params: [],
-      value: 6,
-    });
+      const lastValidBlockHeight = 3;
 
-    const blockHeightPromise = connection.confirmTransaction({
-      signature: blockHeightSignature,
-      blockhash: 'sampleBlockhash',
-      lastValidBlockHeight: 5,
-    });
+      // Start the block height at `lastValidBlockHeight - 1`.
+      await mockRpcResponse({
+        method: 'getBlockHeight',
+        params: [],
+        value: lastValidBlockHeight - 1,
+      });
 
-    await expect(blockHeightPromise).to.be.rejectedWith(
-      TransactionExpiredBlockheightExceededError,
-    );
-  });
+      const confirmationPromise = connection.confirmTransaction({
+        signature: mockSignature,
+        blockhash: 'sampleBlockhash',
+        lastValidBlockHeight,
+      });
+      clock.runAllAsync();
 
-  it('confirm transaction - block height confirmed', async () => {
-    const blockHeightSignature =
-      'LPJ18iiyfz3G1LpNNbcBnBtaS4dVBdPHKrnELqikjER2DcvB4iyTgz43nKQJH3JQAJHuZdM1xVh5Cnc5Hc7LrqC';
+      // Advance the block height to the `lastValidBlockHeight`.
+      await mockRpcResponse({
+        method: 'getBlockHeight',
+        params: [],
+        value: lastValidBlockHeight,
+      });
+      clock.runAllAsync();
 
-    await mockRpcResponse({
-      method: 'getBlockHeight',
-      params: [{commitment: 'processed'}],
-      value: 2,
-    });
+      // Return a signature result in the nick of time.
+      resolveResultPromise({err: null});
 
-    await mockRpcResponse({
-      method: 'getBlockHeight',
-      params: [{commitment: 'processed'}],
-      value: 3,
-    });
-
-    await mockRpcResponse({
-      method: 'getBlockHeight',
-      params: [{commitment: 'processed'}],
-      value: 4,
-    });
-
-    await mockRpcMessage({
-      method: 'signatureSubscribe',
-      params: [blockHeightSignature, {commitment: 'finalized'}],
-      result: Promise.resolve({err: null}),
-    });
-
-    const blockHeightPromise = connection.confirmTransaction({
-      signature: blockHeightSignature,
-      blockhash: 'sampleBlockhash',
-      lastValidBlockHeight: 6,
-    });
-
-    await expect(blockHeightPromise).to.eventually.have.property('context');
-    await expect(blockHeightPromise).to.eventually.have.property('value');
-    await expect(blockHeightPromise).to.eventually.deep.equal({
-      context: {slot: 11},
-      value: {err: null},
+      await expect(confirmationPromise).to.eventually.have.property('context');
+      await expect(confirmationPromise).to.eventually.have.property('value');
+      await expect(confirmationPromise).to.eventually.deep.equal({
+        context: {slot: 11},
+        value: {err: null},
+      });
     });
   });
 
