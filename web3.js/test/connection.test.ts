@@ -56,7 +56,10 @@ import type {
   TransactionError,
   KeyedAccountInfo,
 } from '../src/connection';
-import { TransactionExpiredBlockheightExceededError, TransactionExpiredTimeoutError } from '../src/util/tx-expiry-custom-errors';
+import {
+  TransactionExpiredBlockheightExceededError,
+  TransactionExpiredTimeoutError,
+} from '../src/util/tx-expiry-custom-errors';
 
 use(chaiAsPromised);
 
@@ -932,7 +935,9 @@ describe('Connection', function () {
 
       clock.tick(60 * 1000);
 
-      await expect(timeoutPromise).to.be.rejectedWith(TransactionExpiredTimeoutError);
+      await expect(timeoutPromise).to.be.rejectedWith(
+        TransactionExpiredTimeoutError,
+      );
     });
   });
 
@@ -970,7 +975,9 @@ describe('Connection', function () {
       lastValidBlockHeight: 5,
     });
 
-    await expect(blockHeightPromise).to.be.rejectedWith(TransactionExpiredBlockheightExceededError);
+    await expect(blockHeightPromise).to.be.rejectedWith(
+      TransactionExpiredBlockheightExceededError,
+    );
   });
 
   it('confirm transaction - block height confirmed', async () => {

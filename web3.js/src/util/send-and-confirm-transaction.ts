@@ -42,8 +42,8 @@ export async function sendAndConfirmTransaction(
           await connection.confirmTransaction(
             {
               signature: signature,
-              blockhash: transaction.recentBlockhash!,
-              lastValidBlockHeight: transaction.lastValidBlockHeight!,
+              blockhash: transaction.recentBlockhash,
+              lastValidBlockHeight: transaction.lastValidBlockHeight,
             },
             options && options.commitment,
           )
@@ -54,17 +54,6 @@ export async function sendAndConfirmTransaction(
             options && options.commitment,
           )
         ).value;
-
-  status = (
-    await connection.confirmTransaction(
-      {
-        signature: signature,
-        blockhash: transaction.recentBlockhash!,
-        lastValidBlockHeight: transaction.lastValidBlockHeight!,
-      },
-      options && options.commitment,
-    )
-  ).value;
 
   if (status.err) {
     `Transaction ${signature} failed (${JSON.stringify(status)})`;
