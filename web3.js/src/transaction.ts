@@ -21,6 +21,12 @@ import type {CompiledInstruction} from './message';
  */
 export type TransactionSignature = string;
 
+export const enum TransactionStatus {
+  PROCESSED,
+  EXPIRED,
+  TIMED_OUT,
+}
+
 /**
  * Default (empty) signature
  */
@@ -124,13 +130,38 @@ export type SignaturePubkeyPair = {
 
 /**
  * List of Transaction object fields that may be initialized at construction
- *
  */
-export type TransactionCtorFields = {
-  /** A recent blockhash */
-  recentBlockhash?: Blockhash | null;
+export type TransactionCtorFields_DEPRECATED = {
   /** Optional nonce information used for offline nonce'd transactions */
   nonceInfo?: NonceInformation | null;
+  /** The transaction fee payer */
+  feePayer?: PublicKey | null;
+  /** One or more signatures */
+  signatures?: Array<SignaturePubkeyPair>;
+  /** A recent blockhash */
+  recentBlockhash?: Blockhash;
+};
+
+/**
+ * List of Transaction object fields that may be initialized at construction
+ */
+export type TransactionBlockhashCtor = {
+  /** The transaction fee payer */
+  feePayer?: PublicKey | null;
+  /** One or more signatures */
+  signatures?: Array<SignaturePubkeyPair>;
+  /** A recent blockhash */
+  blockhash: Blockhash;
+  /** the last block chain can advance to before tx is declared expired */
+  lastValidBlockHeight: number;
+};
+
+/**
+ * List of Transaction object fields that may be initialized at construction
+ */
+export type TransactionNonceCtor = {
+  /** Optional nonce information used for offline nonce'd transactions */
+  nonceInfo: NonceInformation;
   /** The transaction fee payer */
   feePayer?: PublicKey | null;
   /** One or more signatures */
@@ -197,6 +228,11 @@ export class Transaction {
   recentBlockhash?: Blockhash;
 
   /**
+   * the last block chain can advance to before tx is declared expired
+   * */
+  lastValidBlockHeight?: number;
+
+  /**
    * Optional Nonce information. If populated, transaction will use a durable
    * Nonce hash instead of a recentBlockhash. Must be populated by the caller
    */
@@ -212,11 +248,45 @@ export class Transaction {
    */
   _json?: TransactionJSON;
 
+  // Construct a transaction with a blockhash and lastValidBlockHeight
+  constructor(opts?: TransactionBlockhashCtor);
+
+  // Construct a transaction with a nonce
+  constructor(opts?: TransactionNonceCtor);
+
+  /**
+   * @deprecated `TransactionCtorFields` has been deprecated and will be removed in a future version.
+   * Please use `TransactionBlockhashCtro` or `TransactionNonceCtor` instead.
+   */
+  constructor(opts?: TransactionCtorFields_DEPRECATED);
+
   /**
    * Construct an empty Transaction
    */
-  constructor(opts?: TransactionCtorFields) {
-    opts && Object.assign(this, opts);
+  constructor(
+    opts?:
+      | TransactionBlockhashCtor
+      | TransactionNonceCtor
+      | TransactionCtorFields_DEPRECATED,
+  ) {
+    if (!opts) {
+      return;
+      // eslint-disable-next-line no-prototype-builtins
+    } else if (opts.hasOwnProperty('recentBlockhash')) {
+      const oldOpts = opts as TransactionCtorFields_DEPRECATED;
+      Object.assign(this, oldOpts);
+      this.recentBlockhash = oldOpts.recentBlockhash;
+      // eslint-disable-next-line no-prototype-builtins
+    } else if (opts.hasOwnProperty('latestBlockhash')) {
+      const newOpts = opts as TransactionBlockhashCtor;
+      Object.assign(this, newOpts);
+      this.recentBlockhash = newOpts.blockhash;
+      this.lastValidBlockHeight = newOpts.lastValidBlockHeight;
+    } else {
+      const newOpts = opts as TransactionNonceCtor;
+      Object.assign(this, newOpts);
+      this.nonceInfo = newOpts.nonceInfo;
+    }
   }
 
   /**
@@ -752,9 +822,11 @@ export class Transaction {
   static populate(
     message: Message,
     signatures: Array<string> = [],
+    lastValidBlockHeight?: number,
   ): Transaction {
     const transaction = new Transaction();
     transaction.recentBlockhash = message.recentBlockhash;
+    transaction.lastValidBlockHeight = lastValidBlockHeight;
     if (message.header.numRequiredSignatures > 0) {
       transaction.feePayer = message.accountKeys[0];
     }
